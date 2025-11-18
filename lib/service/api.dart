@@ -129,6 +129,7 @@ class AuthAPI {
     required String address,
   }) async {
     final now = DateTime.now();
+    final token = await PreferenceHandler.getToken();
 
     final body = {
       "attendance_date": DateFormat("yyyy-MM-dd").format(now),
@@ -140,10 +141,17 @@ class AuthAPI {
     };
 
     final response = await http.post(
-      Uri.parse("$baseUrl/api/absen-check-in"),
-      headers: {"Content-Type": "application/json"},
+      Uri.parse("$baseUrl/api/absen/check-in"),
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
       body: jsonEncode(body),
     );
+
+    print("DEBUG check-in status : ${response.statusCode}");
+    print("DEBUG check-in body   : ${response.body}");
 
     return response.statusCode == 200;
   }
@@ -154,6 +162,7 @@ class AuthAPI {
     required String address,
   }) async {
     final now = DateTime.now();
+    final token = await PreferenceHandler.getToken();
 
     final body = {
       "attendance_date": DateFormat("yyyy-MM-dd").format(now),
@@ -165,22 +174,30 @@ class AuthAPI {
     };
 
     final response = await http.post(
-      Uri.parse("$baseUrl/api/absen-check-out"),
-      headers: {"Content-Type": "application/json"},
+      Uri.parse("$baseUrl/api/absen/check-out"),
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
       body: jsonEncode(body),
     );
+
+    print("DEBUG check-out status : ${response.statusCode}");
+    print("DEBUG check-out body   : ${response.body}");
 
     return response.statusCode == 200;
   }
 
-  static Future<AttendanceToday> getToday() async {
+  static Future<AttendanceToday?> getToday() async {
     final now = DateTime.now();
     final todayStr = DateFormat("yyyy-MM-dd").format(now);
+
+    final token = await PreferenceHandler.getToken();
 
     final url = Uri.parse(
       "$baseUrl/api/absen/stats?start=$todayStr&end=$todayStr",
     );
-    final token = await PreferenceHandler.getToken();
 
     final response = await http.get(
       url,
@@ -190,19 +207,22 @@ class AuthAPI {
       },
     );
 
+    print("DEBUG getToday status : ${response.statusCode}");
+    print("DEBUG getToday body   : ${response.body}");
+
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
+      final data = body['data'];
 
-      // Cek tipe data
-      if (body['data'] is List && body['data'].isNotEmpty) {
-        return AttendanceToday.fromJson(body['data'][0]);
-      } else {
-        // belum absen hari ini
-        return AttendanceToday();
+      // Jika API kirim list absen harian
+      if (data is List && data.isNotEmpty) {
+        return AttendanceToday.fromJson(data[0]);
       }
+
+      // Jika tidak ada data → belum absen
+      return null;
     } else {
-      print("Response body: ${response.body}");
-      throw Exception("Gagal ambil absen hari ini");
+      return null;
     }
   }
 

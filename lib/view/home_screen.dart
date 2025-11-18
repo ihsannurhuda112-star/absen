@@ -1,12 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:absensi_san/models/attendance_statistics.dart';
 import 'package:absensi_san/models/attendance_today.dart';
 import 'package:absensi_san/service/api.dart';
+import 'package:absensi_san/view/map_screen.dart'; // <-- import map screen
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,8 +17,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   AttendanceToday? today;
   AttendanceStatistics? stat;
-  bool isLoading = false;
+  bool isLoadingPage = false;
+  bool isSubmitting = false;
   String userName = "User";
+
+  // lokasi terakhir dari Geolocator
+  Position? _lastPosition;
 
   @override
   void initState() {
@@ -28,85 +31,115 @@ class _HomeScreenState extends State<HomeScreen> {
     loadDashboard();
   }
 
-  // Ambil username
   Future<void> loadUserProfile() async {
     try {
       final profile = await AuthAPI.getProfile();
-      setState(() {
-        userName = profile.name ?? "User";
-      });
+      if (!mounted) return;
+      setState(() => userName = profile.name ?? "User");
     } catch (e) {
+      if (!mounted) return;
       setState(() => userName = "User");
     }
   }
 
-  // Load dashboard
   Future<void> loadDashboard() async {
-    setState(() => isLoading = true);
+    setState(() => isLoadingPage = true);
     try {
       final todayData = await AuthAPI.getToday();
-      final statData =
-          await AuthAPI.getStatistik(); // <--- pakai versi tanpa parameter
+      final statData = await AuthAPI.getStatistik();
 
+      if (!mounted) return;
       setState(() {
         today = todayData;
         stat = statData;
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Gagal memuat dashboard: $e")));
     } finally {
-      setState(() => isLoading = false);
+      if (!mounted) return;
+      setState(() => isLoadingPage = false);
     }
   }
 
-  // Cek & minta izin lokasi
   Future<Position> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) throw 'Layanan lokasi tidak aktif';
 
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) throw 'Izin lokasi ditolak';
+      if (permission == LocationPermission.denied) {
+        throw 'Izin lokasi ditolak';
+      }
     }
-    if (permission == LocationPermission.deniedForever)
+    if (permission == LocationPermission.deniedForever) {
       throw 'Izin lokasi ditolak permanen';
+    }
 
     return await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
     );
   }
 
-  // Handle Check In / Check Out
   Future<void> handleAttendance() async {
-    try {
-      setState(() => isLoading = true);
-      Position position = await _determinePosition();
-      String address = "Jakarta";
+    if (isSubmitting || !mounted) return;
+    setState(() => isSubmitting = true);
 
+    try {
+      final pos = await _determinePosition();
+      const address = "Jakarta";
+
+      // simpan lokasi terakhir buat ditampilkan + buka map
+      setState(() {
+        _lastPosition = pos;
+      });
+
+      // ============= CHECK IN =============
       if (today?.checkInTime == null) {
         final success = await AuthAPI.absenCheckIn(
-          lat: position.latitude,
-          lng: position.longitude,
+          lat: pos.latitude,
+          lng: pos.longitude,
           address: address,
         );
-        if (success) {
+
+        if (success && mounted) {
+          setState(() {
+            today = AttendanceToday(
+              attendanceDate: DateFormat("yyyy-MM-dd").format(DateTime.now()),
+              checkInTime: DateFormat("HH:mm").format(DateTime.now()),
+              status: "masuk",
+              checkInAddress: address,
+            );
+          });
+
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text("Berhasil Check In")));
         }
+
+        // ============= CHECK OUT =============
       } else if (today?.checkOutTime == null) {
         final success = await AuthAPI.absenCheckOut(
-          lat: position.latitude,
-          lng: position.longitude,
+          lat: pos.latitude,
+          lng: pos.longitude,
           address: address,
         );
-        if (success) {
+
+        if (success && mounted) {
+          setState(() {
+            today = AttendanceToday(
+              attendanceDate: today?.attendanceDate,
+              checkInTime: today?.checkInTime,
+              checkOutTime: DateFormat("HH:mm").format(DateTime.now()),
+              status: today?.status,
+              checkInAddress: today?.checkInAddress,
+              checkOutAddress: address,
+            );
+          });
+
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text("Berhasil Check Out")));
@@ -116,25 +149,24 @@ class _HomeScreenState extends State<HomeScreen> {
           context,
         ).showSnackBar(const SnackBar(content: Text("Sudah absen hari ini")));
       }
-
-      await loadDashboard();
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Gagal absen: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Gagal absen: $e")));
+      }
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isSubmitting = false);
     }
   }
 
-  // Widget statistik card
   Widget statCard(String label, int value, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6)],
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
       ),
       child: Column(
         children: [
@@ -155,9 +187,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // tanggal hari ini
+    final now = DateTime.now();
+    final todayString = DateFormat("EEEE, dd MMMM yyyy", "id_ID").format(now);
+
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      body: isLoading
+      body: isLoadingPage
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: loadDashboard,
@@ -165,7 +201,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   const SizedBox(height: 10),
-                  // Greeting
                   Row(
                     children: [
                       const CircleAvatar(
@@ -187,18 +222,28 @@ class _HomeScreenState extends State<HomeScreen> {
                             "Selamat bekerja ✨",
                             style: TextStyle(color: Colors.grey[600]),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            todayString,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
                         ],
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 20),
-                  // Absen Hari Ini
+
+                  // ================== ABSEN HARI INI ==================
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
+                      boxShadow: const [
                         BoxShadow(color: Colors.black12, blurRadius: 8),
                       ],
                     ),
@@ -223,10 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Column(
                               children: [
-                                Text(
-                                  "Jam Masuk",
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
+                                const Text("Jam Masuk"),
                                 const SizedBox(height: 4),
                                 Text(
                                   today?.checkInTime ?? "-",
@@ -238,17 +280,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ],
                             ),
-                            Container(
-                              width: 1,
-                              height: 40,
-                              color: Colors.grey[300],
-                            ),
                             Column(
                               children: [
-                                Text(
-                                  "Jam Pulang",
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
+                                const Text("Jam Pulang"),
                                 const SizedBox(height: 4),
                                 Text(
                                   today?.checkOutTime ?? "-",
@@ -269,52 +303,86 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.info, color: Colors.blue),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  today?.status?.toUpperCase() ?? "Belum Absen",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.blue[800],
-                                  ),
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            today?.status?.toUpperCase() ?? "Belum Absen",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[800],
+                            ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+
+                        // lokasi terakhir + tombol lihat map
+                        if (_lastPosition != null) ...[
+                          Text(
+                            "Lokasi terakhir: "
+                            "${_lastPosition!.latitude.toStringAsFixed(5)}, "
+                            "${_lastPosition!.longitude.toStringAsFixed(5)}",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => MapScreen(
+                                      latitude: _lastPosition!.latitude,
+                                      longitude: _lastPosition!.longitude,
+                                      title: "Lokasi Absen Hari Ini",
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.map),
+                              label: const Text("Lihat di Map"),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 20),
-                  // Tombol Check In / Out
+
+                  // tombol CHECK IN / CHECK OUT
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: today?.checkInTime == null
                           ? Colors.green
-                          : Colors.orange,
+                          : (today?.checkOutTime == null
+                                ? Colors.orange
+                                : Colors.grey),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    onPressed: handleAttendance,
+                    onPressed: (today?.checkOutTime != null || isSubmitting)
+                        ? null
+                        : handleAttendance,
                     child: Text(
                       today?.checkInTime == null
                           ? "CHECK IN"
-                          : today?.checkOutTime == null
-                          ? "CHECK OUT"
-                          : "SUDAH ABSEN",
+                          : (today?.checkOutTime == null
+                                ? "CHECK OUT"
+                                : "SUDAH ABSEN"),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 20),
-                  // Statistik Kehadiran
+
+                  // ================== STATISTIK ABSEN ==================
                   const Text(
                     "Statistik Kehadiran",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
