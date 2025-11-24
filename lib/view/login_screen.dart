@@ -1,11 +1,13 @@
+// lib/view/login_screen_san.dart
+import 'package:absensi_san/navigation/buttom_navigator.dart';
 import 'package:absensi_san/preference/preference_handler.dart';
 import 'package:absensi_san/view/forgot_password_screen.dart';
-import 'package:absensi_san/view/home_screen.dart';
 import 'package:absensi_san/view/register_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:absensi_san/service/api.dart';
 import 'package:absensi_san/models/login_model.dart';
+import 'package:intl/intl.dart';
 
 class LoginScreenSan extends StatefulWidget {
   const LoginScreenSan({super.key});
@@ -22,6 +24,13 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
   bool isLoading = false;
 
   final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,13 +50,13 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  Text(
+                  const Text(
                     "Welcome Back",
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 12),
-                  Text("Login to access your account"),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  const Text("Login to access your account"),
+                  const SizedBox(height: 24),
 
                   // ---------------- EMAIL ----------------
                   buildTextField(
@@ -64,7 +73,7 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                     },
                   ),
 
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
                   // ---------------- PASSWORD ----------------
                   buildTextField(
@@ -82,7 +91,7 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                     },
                   ),
 
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
                   // ---------------- LOGIN BUTTON ----------------
                   SizedBox(
@@ -91,12 +100,12 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                     child: ElevatedButton(
                       onPressed: isLoading ? null : login,
                       child: isLoading
-                          ? CircularProgressIndicator(color: Colors.white)
-                          : Text("Login"),
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text("Login"),
                     ),
                   ),
 
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
 
                   Align(
                     alignment: Alignment.centerRight,
@@ -105,11 +114,11 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => ForgotPasswordScreen(),
+                            builder: (_) => const ForgotPasswordScreen(),
                           ),
                         );
                       },
-                      child: Text(
+                      child: const Text(
                         "Forgot Password?",
                         style: TextStyle(
                           color: Colors.blue,
@@ -119,13 +128,13 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                     ),
                   ),
 
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
                   // ---------------- FOOTER REGISTER ----------------
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text("Don't have an account?"),
+                      const Text("Don't have an account?"),
                       TextButton(
                         onPressed: () {
                           Navigator.pushReplacement(
@@ -135,7 +144,7 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
                             ),
                           );
                         },
-                        child: Text(
+                        child: const Text(
                           "Sign Up",
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
@@ -160,30 +169,70 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
     setState(() => isLoading = true);
 
     try {
+      // 1) Authenticate
       final result = await AuthAPI.loginUser(
-        email: emailController.text,
+        email: emailController.text.trim(),
         password: passwordController.text,
       );
 
-      // simpan token
-      await PreferenceHandler.saveToken(result.data!.token!);
-      final profile = await AuthAPI.getProfile();
-      if (profile.name != null) {
-        await PreferenceHandler.saveUserName(profile.name!);
+      // if login success and server returned token -> save token
+      if (result.data != null && result.data!.token != null) {
+        await PreferenceHandler.saveToken(result.data!.token!);
+      }
+
+      // 2) Fetch profile (authoritative) and save userId + username if available
+      try {
+        final profile = await AuthAPI.getProfile();
+
+        // NOTE: replace `profile.id` if your ProfileModel uses different field name
+        if (profile.id != null) {
+          await PreferenceHandler.saveUserId(profile.id.toString());
+        }
+
+        if (profile.name != null && profile.name!.isNotEmpty) {
+          await PreferenceHandler.saveUserName(profile.name!);
+        }
+      } catch (e) {
+        // non-blocking: gagal ambil profil tidak menghalangi login
+        debugPrint('Warn: failed to fetch profile after login: $e');
+      }
+
+      // 3) Sinkronisasi statistik hari ini (non-blocking)
+      try {
+        final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final statsToday = await AuthAPI.getStatistik(
+          start: todayStr,
+          end: todayStr,
+        );
+
+        // simpan boolean sudahAbsen hari ini (per-user via PreferenceHandler)
+        await PreferenceHandler.saveAbsenStatusToday(
+          statsToday.sudahAbsenHariIni,
+        );
+
+        // jika API punya today object, ambil juga dan simpan object ke cache per-user
+        final todayData = await AuthAPI.getToday();
+        if (todayData != null) {
+          await PreferenceHandler.saveTodayAttendance(todayData.toJson());
+        }
+      } catch (e) {
+        debugPrint('Warn: failed to sync today stats after login: $e');
       }
 
       Fluttertoast.showToast(msg: "Login berhasil");
 
-      // pindah ke home
+      // 4) Navigate to main app
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => HomeScreen()),
+        MaterialPageRoute(builder: (_) => const ButtomNavigator()),
       );
     } catch (e) {
+      // tampilkan error login
       Fluttertoast.showToast(msg: e.toString());
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
-
-    setState(() => isLoading = false);
   }
 
   // ================================
@@ -221,7 +270,7 @@ class _LoginScreenSanState extends State<LoginScreenSan> {
   // ================================
   Container buildBackground() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         image: DecorationImage(
           image: AssetImage("assets/images/kertas.png"),
           fit: BoxFit.cover,

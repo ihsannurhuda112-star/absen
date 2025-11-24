@@ -1,21 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.absensi_san">
+    package="com.keren.absensi_san">
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
 
     <application
-        android:label="absensi_san"
+        android:label="AbsenS"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon">
 
         <!-- GOOGLE MAPS API KEY (WAJIB ADA DI SINI) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDk_IqTjxDnhlwFcVf8bYfNR0qBtEGAyJw" />
+            android:value="AIzaSyBuIzlOz4IRdEcx7qHVKvwziiS4mufgcGM" />
 
         <activity
             android:name=".MainActivity"

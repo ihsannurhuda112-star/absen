@@ -1,4 +1,4 @@
-package com.example.absensi_san
+package com.keren.absensi_san
 
 import io.flutter.embedding.android.FlutterActivity
 

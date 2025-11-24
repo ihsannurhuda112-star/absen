@@ -20,12 +20,24 @@ class AttendanceToday {
   factory AttendanceToday.fromJson(Map<String, dynamic> json) {
     return AttendanceToday(
       attendanceDate: json['attendance_date']?.toString(),
-      checkInTime: json['check_in']?.toString(), // <- Fix
-      checkOutTime: json['check_out']?.toString(), // <- Fix
+      checkInTime: json['check_in']?.toString(),
+      checkOutTime: json['check_out']?.toString(),
       checkInAddress: json['check_in_address']?.toString(),
       checkOutAddress: json['check_out_address']?.toString(),
       status: json['status']?.toString(),
       alasanIzin: json['alasan_izin']?.toString(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      "attendance_date": attendanceDate,
+      "check_in": checkInTime,
+      "check_out": checkOutTime,
+      "check_in_address": checkInAddress,
+      "check_out_address": checkOutAddress,
+      "status": status,
+      "alasan_izin": alasanIzin,
+    };
   }
 }
