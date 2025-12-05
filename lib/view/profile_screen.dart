@@ -606,6 +606,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 18),
+
+                  // Tambahan credit
+                  Center(
+                    child: Text(
+                      'By Ihsan Nur Huda',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
 
                   const SizedBox(height: 18),
                 ],
